@@ -1,16 +1,17 @@
-    ; 초기 주소 설정 (0x0100에 문자열 있음)
-    ldi   AH, 0x01         ; AH = 0x01
-    ldi   AL, 0x00         ; AL = 0x00
-    ldi   R1, 0xFF         
-    ldi   R2, 0xF0         
+0x0000    ldi   AH, 0x01        00000001 110 111 01,    01 DD  ; AH:AL = 0x0100
+0x0002    ldi   AL, 0x00        00000000 111 111 01,    00 FD  
+0x0004    ldi   B, 0xFF         11111111 001 111 01,    FF 3D  ; B:C = 0xFFF0 
+0x0006    ldi   C, 0xF4         11110100 010 111 01,    F4 5d
 
-loop:
-    ld    R0, AH, AL        ; R0 ← 메모리[AH:AL]
-    cmpi  R0, 0         ; R0 == 0?
-    jeq   end             ; 종료 조건
-    st    R0, R1, R2    ; 터미널 출력 (0xFFF0)
-    addi  AL, 1       ; AL += 1
-    jmp   loop             ; 반복
+    loop:
+0x0008    ld    A, AH, AL       00 110 111 000 000 11,  37 03    ; A ← MEM[AH:AL]
+0x000A    cmpi  A, 0            00000000 000 110 01,    00 19    ; is (A == 0)?
+0x000C    jeq   end             00000000100 000 10,     00 82    ; if (A == 0) PC += (4 << 1)
+0x000E    st    A, B, C         00  001 010 000 001 11, 06 07    ; print A 
+0x0010    addi  AL, 1           00000001 111 000 01,    01 E1    ; AL += 1
+0x0012    jmp   loop            11111111011 000 10,     FF 62    ; PC += (-5 << 1)
 
-end:
-    halt
+    end:
+0x0014    halt                  1111111111111111,       FF FF 
+
+0x0001_0100 "Hello, World!\n\0"

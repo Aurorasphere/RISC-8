@@ -309,8 +309,7 @@ pub fn SoC_run(soc: *sys_on_chip) void {
         }
 
         // 명령어 fetch-decode-execute (예시)
-        const instr: u16 = @as(u16, soc.instr_mem[soc.pc]) |
-            (@as(u16, soc.instr_mem[soc.pc + 1]) << 8);
+        const instr: u16 = @as(u16, soc.instr_mem[soc.pc]) | (@as(u16, soc.instr_mem[soc.pc + 1]) << 8);
         soc.pc += 2;
 
         const opc: u2 = @intCast(instr & 0b11);
