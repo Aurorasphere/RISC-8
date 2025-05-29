@@ -1,8 +1,8 @@
 const std = @import("std");
 const dev = @import("device.zig");
 
-pub const INSTR_MEM_SIZE = 64 * 1024; // 32KB
-pub const DATA_MEM_SIZE = 64 * 1024; // 24KB
+pub const INSTR_MEM_SIZE = 64 * 1024; // 64KB
+pub const DATA_MEM_SIZE = 64 * 1024; // 64KB
 
 const STACK_SIZE = 0xFF;
 const STACK_START = 0x0000;
@@ -87,7 +87,7 @@ fn aluop_decode(fn3: u3, fn2: u2) aluop {
     }
 }
 
-fn alu(soc: *sys_on_chip, op: aluop, A: u8, B: u8) u8 {
+fn alu(soc: *sys_on_chip, op: aluop, A: u8, B: u8, is_debug: bool) u8 {
     var result: u8 = 0;
 
     switch (op) {
@@ -117,35 +117,100 @@ fn alu(soc: *sys_on_chip, op: aluop, A: u8, B: u8) u8 {
             }
         },
     }
+    if (is_debug) {
+        switch (op) {
+            .cmp => std.debug.print("[ALU] cmp A=0x{X:02}, B=0x{X:02} → EQ={}, LT={}, GT={}\n", .{
+                A,                                             B,
+                (soc.statusreg & @intFromEnum(flags.EQ)) != 0, (soc.statusreg & @intFromEnum(flags.LT)) != 0,
+                (soc.statusreg & @intFromEnum(flags.GT)) != 0,
+            }),
+            else => std.debug.print("[ALU] op={s} A=0x{X:02}, B=0x{X:02} → result=0x{X:02}\n", .{ @tagName(op), A, B, result }),
+        }
+    }
+
     return result;
 }
 
-fn execR(soc: *sys_on_chip, instr: u16) void {
+fn execR(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
     const fn3: u3 = @intCast((instr >> 2) & 0b111);
     const Rd: u3 = @intCast((instr >> 5) & 0b111);
     const Rn: u3 = @intCast((instr >> 8) & 0b111);
     const Rm: u3 = @intCast((instr >> 11) & 0b111);
     const fn2: u2 = @intCast((instr >> 14) & 0b11);
 
-    const result = alu(soc, aluop_decode(fn3, fn2), soc.regfile[Rm], soc.regfile[Rn]);
+    const op = aluop_decode(fn3, fn2);
+    const val_rm = soc.regfile[Rm];
+    const val_rn = soc.regfile[Rn];
+
+    const result = alu(soc, op, soc.regfile[Rm], soc.regfile[Rn], is_debug);
     if (aluop_decode(fn3, fn2) != .cmp) {
         soc.regfile[Rd] = result;
     }
+    if (is_debug) {
+        if (op == .cmp) {
+            std.debug.print("[execR] cmp r{d}=0x{X:02}, r{d}=0x{X:02} → flags: EQ={}, LT={}, GT={}\n", .{
+                Rm,
+                val_rm,
+                Rn,
+                val_rn,
+                (soc.statusreg & @intFromEnum(flags.EQ)) != 0,
+                (soc.statusreg & @intFromEnum(flags.LT)) != 0,
+                (soc.statusreg & @intFromEnum(flags.GT)) != 0,
+            });
+        } else {
+            std.debug.print("[execR] {s} r{d}=r{d}(0x{X:02}) {s} r{d}(0x{X:02}) → r{d}=0x{X:02}\n", .{
+                @tagName(op), Rd,
+                Rm,           val_rm,
+                switch (op) {
+                    .add, .sub, .or_op, .and_op, .xor => "+",
+                    .lsl => "<<",
+                    .lsr => ">>",
+                    .asr => ">>>",
+                    else => "?", // fallback
+                },
+                Rn,           val_rn,
+                Rd,
+                result,
+            });
+        }
+    }
 }
 
-fn execI(soc: *sys_on_chip, instr: u16) void {
+fn execI(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
     const fn3: u3 = @intCast((instr >> 2) & 0b111);
     const Rmd: u3 = @intCast((instr >> 5) & 0b111);
     const imm: u8 = @intCast((instr >> 8) & 0b1111_1111);
 
+    const op = aluop_decode(fn3, 0);
+    const old = soc.regfile[Rmd];
+
     switch (fn3) {
         0b111 => {
             soc.regfile[Rmd] = imm;
+            if (is_debug) {
+                std.debug.print("[execI] ldi r{d} = 0x{X:02}\n", .{ Rmd, imm });
+            }
         },
         else => {
-            const result = alu(soc, aluop_decode(fn3, 0), soc.regfile[Rmd], imm);
+            const result = alu(soc, aluop_decode(fn3, 0), soc.regfile[Rmd], imm, is_debug);
             if (aluop_decode(fn3, 0) != .cmp) {
                 soc.regfile[Rmd] = result;
+            }
+            if (is_debug) {
+                if (op == .cmp) {
+                    std.debug.print("[execI] cmpi r{d}=0x{X:02}, imm=0x{X:02} → flags: EQ={}, LT={}, GT={}\n", .{
+                        Rmd,
+                        old,
+                        imm,
+                        (soc.statusreg & @intFromEnum(flags.EQ)) != 0,
+                        (soc.statusreg & @intFromEnum(flags.LT)) != 0,
+                        (soc.statusreg & @intFromEnum(flags.GT)) != 0,
+                    });
+                } else {
+                    std.debug.print("[execI] {s}i r{d}(0x{X:02}), imm=0x{X:02} → r{d}=0x{X:02}\n", .{
+                        @tagName(op), Rmd, old, imm, Rmd, result,
+                    });
+                }
             }
         },
     }
@@ -155,7 +220,7 @@ fn sign_extend11(x: u11) i16 {
     return @as(i16, (@as(i16, x) << 5)) >> 5;
 }
 
-fn execJ(soc: *sys_on_chip, instr: u16) void {
+fn execJ(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
     const fn3: u3 = @intCast((instr >> 2) & 0b111);
     const offset: u11 = @intCast((instr >> 5) & 0b111_1111_1111);
 
@@ -163,49 +228,70 @@ fn execJ(soc: *sys_on_chip, instr: u16) void {
     const ah = soc.regfile[@intFromEnum(regs.AH)];
     const al = soc.regfile[@intFromEnum(regs.AL)];
     const abs_addr: u16 = (@as(u16, ah) << 8) | al;
-
+    var jumped = false;
+    const old_pc = soc.pc;
     switch (fn3) {
         0b000 => {
             soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+            jumped = true;
         },
         0b001 => {
             if ((soc.statusreg & @intFromEnum(flags.EQ)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
         0b010 => {
             if ((soc.statusreg & @intFromEnum(flags.EQ)) == 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
         0b011 => {
             if ((soc.statusreg & @intFromEnum(flags.GT)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
         0b100 => {
             if ((soc.statusreg & @intFromEnum(flags.LT)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
 
         0b101 => {
             if ((soc.statusreg & @intFromEnum(flags.GT)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             } else if ((soc.statusreg & @intFromEnum(flags.EQ)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
         0b110 => {
             if ((soc.statusreg & @intFromEnum(flags.LT)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             } else if ((soc.statusreg & @intFromEnum(flags.EQ)) != 0) {
                 soc.pc = @as(u16, @intCast(@as(i16, @intCast(soc.pc)) + rel_offset));
+                jumped = true;
             }
         },
         0b111 => {
             soc.pc = abs_addr;
+            jumped = true;
         },
+    }
+    if (is_debug) {
+        const tag_names = [_][]const u8{ "jmp", "jeq", "jneq", "jgt", "jlt", "jegt", "jelt1", "jal" };
+        if (fn3 < tag_names.len) {
+            if (jumped) {
+                std.debug.print("[execJ] {s}: PC 0x{X:04} → 0x{X:04} (offset=0x{X:04})\n", .{ tag_names[fn3], old_pc, soc.pc, rel_offset });
+            } else {
+                std.debug.print("[execJ] {s}: PC 0x{X:04} (no jump)\n", .{ tag_names[fn3], old_pc });
+            }
+        }
     }
 }
 
@@ -216,6 +302,11 @@ fn execP(soc: *sys_on_chip, instr: u16) void {
     const lo: u3 = @intCast((instr >> 8) & 0b111);
     const intnum: u4 = @intCast((instr >> 8) & 0b1111);
 
+    if (instr == 0xFFFF) {
+        soc.statusreg |= @intFromEnum(flags.HALTED);
+        soc.halted = true;
+        return;
+    }
     switch (fn3) {
         0b000 => {
             const ah = soc.regfile[hi];
@@ -278,48 +369,36 @@ fn execP(soc: *sys_on_chip, instr: u16) void {
     }
 }
 
-pub fn SoC_run(soc: *sys_on_chip) void {
+pub fn SoC_run(soc: *sys_on_chip, is_debug: bool) void {
+    if (is_debug) {
+        std.debug.print("[BOOT] Entering SoC_run loop... halted={} PC=0x{X:04}\n", .{ soc.halted, soc.pc });
+    }
     while (!soc.halted) {
-        dev.poll_keyboard();
-        dev.poll_timer();
-
-        // IRQ 감지
-        for (0..dev.MAX_DEVICE) |i| {
-            if (i >= dev.MAX_DEVICE) break;
-            const d = dev.devices[i];
-            if (d.is_interrupting != null and d.is_interrupting.?()) {
-                if ((soc.statusreg & @intFromEnum(flags.INTMASK)) == 0) {
-                    // 인터럽트 처리
-                    const irq_num: u4 = switch (d.id) {
-                        .keyboard => dev.keyboard_irq_num,
-                        .timer => dev.timer_irq_num,
-                        else => continue,
-                    };
-                    const target = soc.ivt[irq_num];
-                    // PC 저장
-                    soc.regfile[@intFromEnum(regs.AH)] = @truncate(soc.pc >> 8);
-                    soc.regfile[@intFromEnum(regs.AL)] = @truncate(soc.pc & 0xFF);
-                    // 상태 갱신
-                    soc.statusreg |= @intFromEnum(flags.INTPEND);
-                    soc.statusreg |= @intFromEnum(flags.INTMASK);
-                    soc.pc = target;
-                    break;
-                }
-            }
-        }
-
-        // 명령어 fetch-decode-execute (예시)
         const instr: u16 = @as(u16, soc.instr_mem[soc.pc]) | (@as(u16, soc.instr_mem[soc.pc + 1]) << 8);
+        if (is_debug) {
+            std.debug.print("[FETCH] PC=0x{X:04} → instr=0x{X:04}\n", .{ soc.pc, instr });
+        }
         soc.pc += 2;
 
+        // 명령어 Decode + Execute
         const opc: u2 = @intCast(instr & 0b11);
+        if (is_debug) {
+            const mnemonic = switch (opc) {
+                0b00 => "R-type",
+                0b01 => "I-type",
+                0b10 => "J-type",
+                0b11 => "P-type",
+            };
+            std.debug.print("[DECODE] opcode={b:02} ({s})\n", .{ opc, mnemonic });
+        }
+
         switch (opc) {
-            0b00 => execR(soc, instr),
-            0b01 => execI(soc, instr),
-            0b10 => execJ(soc, instr),
+            0b00 => execR(soc, instr, is_debug),
+            0b01 => execI(soc, instr, is_debug),
+            0b10 => execJ(soc, instr, is_debug),
             0b11 => execP(soc, instr),
         }
     }
 
-    std.debug.print("SoC Halted. Final PC Value: .{}", .{soc.pc});
+    std.debug.print("SoC Halted. Final PC Value: 0x{X:04}\n", .{soc.pc});
 }
