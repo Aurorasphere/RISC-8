@@ -5,14 +5,13 @@ const prog = @import("program.zig");
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
-    var is_debug: bool = true;
-    var soc = SoC.sys_on_chip{};
+
+    var is_debug = false;
+    var filename: []const u8 = "";
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    std.debug.print("Debug Mode: {}\n", .{is_debug});
-    var filename: []const u8 = "";
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--debug")) {
             is_debug = true;
@@ -26,8 +25,14 @@ pub fn main() !void {
         return error.MissingFilename;
     }
 
-    try prog.load_program(&soc, &allocator, ".", filename);
-    std.debug.print("Loaded PC: 0x{X:04}, First Instruction: 0x{X:02} 0x{X:02}\n", .{ soc.pc, soc.instr_mem[0], soc.instr_mem[1] });
+    var soc = SoC.sys_on_chip{};
+
+    try prog.load_elf(&soc, &allocator, ".", filename);
+
+    if (is_debug) {
+        std.debug.print("Debug Mode: true\n", .{});
+        std.debug.print("PC = 0x{X:04}, Instr[0] = 0x{X:02} 0x{X:02}\n", .{ soc.pc, soc.instr_mem[soc.pc], soc.instr_mem[soc.pc + 1] });
+    }
 
     SoC.SoC_run(&soc, is_debug);
 }
