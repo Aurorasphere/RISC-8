@@ -27,11 +27,19 @@ pub fn main() !void {
 
     var soc = SoC.sys_on_chip{};
 
-    try prog.load_elf(&soc, &allocator, ".", filename);
+    try prog.load_bin(&soc, allocator, ".", filename);
 
     if (is_debug) {
         std.debug.print("Debug Mode: true\n", .{});
-        std.debug.print("PC = 0x{X:04}, Instr[0] = 0x{X:02} 0x{X:02}\n", .{ soc.pc, soc.instr_mem[soc.pc], soc.instr_mem[soc.pc + 1] });
+        std.debug.print("PC = 0x{X:04}, Instr = 0x{X:02} 0x{X:02}\n", .{ soc.pc, soc.instr_mem[soc.pc], soc.instr_mem[soc.pc + 1] });
+
+        for (soc.regfile, 0..) |val, i| {
+            std.debug.print("r{d} = 0x{X:02}\n", .{ i, val });
+        }
+
+        if (soc.pc >= 0xF800) {
+            std.debug.print("Notice: PC is in interrupt routine region.\n", .{});
+        }
     }
 
     SoC.SoC_run(&soc, is_debug);
