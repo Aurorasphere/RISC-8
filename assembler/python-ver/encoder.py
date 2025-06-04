@@ -20,10 +20,10 @@ def build_label_table(instr_section):
     return label_map
 
 def calc_relative_offset(from_pc: int, to_addr: int) -> int:
-    delta = (to_addr - from_pc - 2) // 2
-    if not -128 <= delta <= 127:
-        raise ValueError(f"Offset out of range: {delta}")
-    return delta & 0xFF
+    offset = (to_addr - from_pc) // 2
+    if not -1024 <= offset < 1024:  # 11비트 signed range
+        raise ValueError(f"Offset out of range: {offset}")
+    return offset & 0x7FF  # 11비트로 마스킹
 
 # Encode R-Type instruction 
 def encodeR(fn2: int, rd: str, rm: str, rn: str, fn3: int):
@@ -31,13 +31,13 @@ def encodeR(fn2: int, rd: str, rm: str, rn: str, fn3: int):
     assert 0 <= fn3 < 8, f"fn3 value {fn3} must be lesser than 3-bit maximum"
     return (fn2 << 14) | (reg_map[rm] << 11) | (reg_map[rn] << 8) | (reg_map[rd] << 5) | (fn3 << 2) | 0b00
 def r_add(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b000)
-def r_sub(rd, rm, rn): return encodeR(0b01, rd, rm, rn, 0b000)
+def r_sub(rd, rm, rn): return encodeR(0b10, rd, rm, rn, 0b000)
 def r_and(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b001)
 def r_or(rd, rm, rn):  return encodeR(0b00, rd, rm, rn, 0b010)
 def r_xor(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b011)
 def r_lsl(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b100)
 def r_lsr(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b101)
-def r_asr(rd, rm, rn): return encodeR(0b01, rd, rm, rn, 0b101)
+def r_asr(rd, rm, rn): return encodeR(0b10, rd, rm, rn, 0b101)
 def r_cmp(rd, rm, rn): return encodeR(0b00, rd, rm, rn, 0b110)
 
 # Encode I-Type instruction 
@@ -118,26 +118,40 @@ def encode_single_instruction(line: str, pc: int, label_map: dict) -> int:
     elif op == "ldi":
         return i_ldi(args[0], int(args[1], 0))
     elif op == "jmp":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jmp(offset)
+
     elif op == "jeq":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jeq(offset)
+
     elif op == "jneq":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jneq(offset)
+
     elif op == "jgt":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jgt(offset)
+
     elif op == "jlt":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jlt(offset)
+
     elif op == "jegt":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jegt(offset)
+
     elif op == "jelt":
-        offset = calc_relative_offset(pc, label_map[args[0]])
+        target_pc = label_map[args[0]]
+        offset = calc_relative_offset(pc, target_pc)
         return j_jelt(offset)
+
     elif op == "jr":
         return j_jr()
     elif op == "ld":

@@ -91,14 +91,14 @@ fn alu(soc: *sys_on_chip, op: aluop, A: u8, B: u8, is_debug: bool) u8 {
     var result: u8 = 0;
 
     switch (op) {
-        .add => result = A + B,
-        .sub => result = A - B,
+        .add => result = @addWithOverflow(A, B)[0],
+        .sub => result = @subWithOverflow(A, B)[0],
         .or_op => result = A | B,
         .and_op => result = A & B,
         .xor => result = A ^ B,
-        .lsl => result = A << @truncate(B),
-        .lsr => result = A >> @truncate(B),
-        .asr => result = @intCast(@as(i8, @intCast(A)) >> @truncate(B)),
+        .lsl => result = A << @truncate(B & 0x7),
+        .lsr => result = A >> @truncate(B & 0x7),
+        .asr => result = @intCast(@as(i8, @intCast(A)) >> @truncate(B & 0x7)),
         .cmp => {
             if (A == B) {
                 soc.statusreg |= @intFromEnum(flags.EQ);
@@ -369,11 +369,32 @@ fn execP(soc: *sys_on_chip, instr: u16) void {
     }
 }
 
-pub fn SoC_run(soc: *sys_on_chip, is_debug: bool) void {
+pub fn SoC_run(soc: *sys_on_chip, is_debug: bool, is_slow: bool) void {
     if (is_debug) {
         std.debug.print("[BOOT] Entering SoC_run loop... halted={} PC=0x{X:04}\n", .{ soc.halted, soc.pc });
     }
     while (!soc.halted) {
+        if (soc.irq and (soc.statusreg & @intFromEnum(flags.INTMASK)) == 0) {
+            var intnum: u4 = 0xF; // 기본: IRQ 없음
+
+            if (dev.keyboard_interrupting()) {
+                intnum = dev.keyboard_irq_num; // = 0
+            } else if (dev.timer_interrupting()) {
+                intnum = dev.timer_irq_num; // = 1
+            }
+
+            if (intnum != 0xF) {
+                const addr = soc.ivt[intnum];
+                soc.regfile[@intFromEnum(regs.AH)] = @truncate(soc.pc >> 8);
+                soc.regfile[@intFromEnum(regs.AL)] = @truncate(soc.pc & 0xFF);
+                soc.statusreg |= @intFromEnum(flags.INTPEND);
+                soc.statusreg |= @intFromEnum(flags.INTMASK);
+                soc.pc = addr;
+                soc.irq = false;
+                continue;
+            }
+        }
+
         const instr: u16 = @as(u16, soc.instr_mem[soc.pc]) | (@as(u16, soc.instr_mem[soc.pc + 1]) << 8);
         if (is_debug) {
             std.debug.print("[FETCH] PC=0x{X:04} → instr=0x{X:04}\n", .{ soc.pc, instr });
@@ -382,6 +403,10 @@ pub fn SoC_run(soc: *sys_on_chip, is_debug: bool) void {
 
         // 명령어 Decode + Execute
         const opc: u2 = @intCast(instr & 0b11);
+        if (is_slow) {
+            std.time.sleep(1_000_000_000);
+        }
+
         if (is_debug) {
             const mnemonic = switch (opc) {
                 0b00 => "R-type",

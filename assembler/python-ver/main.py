@@ -1,3 +1,5 @@
+#!/bin/python
+
 import os
 import struct
 from parser import parse_asm

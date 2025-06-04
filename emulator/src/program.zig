@@ -10,7 +10,7 @@ pub fn load_bin(
     const full_path = if (std.fs.path.isAbsolute(filename)) filename else try std.fs.path.join(allocator, &[_][]const u8{ dir_path, filename });
     defer if (!std.fs.path.isAbsolute(filename)) allocator.free(full_path);
 
-    const file = try std.fs.cwd().openFile(full_path, .{});
+    const file = try std.fs.openFileAbsolute(full_path, .{});
     defer file.close();
 
     const file_size = try file.getEndPos();

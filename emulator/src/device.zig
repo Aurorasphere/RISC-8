@@ -1,4 +1,5 @@
 const std = @import("std");
+const SoC = @import("soc.zig");
 const print = std.debug.print;
 
 pub const MAX_DEVICE = 16;
@@ -66,11 +67,12 @@ pub fn keyboard_interrupting() bool {
     return keyboard_buffer != null;
 }
 
-pub fn poll_keyboard() void {
+pub fn poll_keyboard_with_irq(soc: *SoC.sys_on_chip) void {
     const stdin = std.io.getStdIn().reader();
     var buf: [1]u8 = undefined;
     if (stdin.read(&buf)) |_| {
         keyboard_buffer = buf[0];
+        soc.irq = true; // IRQ 요청 발생
     } else |_| {
         keyboard_buffer = null;
     }
@@ -103,11 +105,12 @@ pub fn timer_read() u8 {
     return tick_count;
 }
 
-pub fn poll_timer() void {
+pub fn poll_timer_with_irq(soc: *SoC.sys_on_chip) void {
     tick_count += 1;
     if (tick_count >= tick_threshold) {
         tick_pending = true;
         tick_count = 0;
+        soc.irq = true; // 인터럽트 요청
     }
 }
 
