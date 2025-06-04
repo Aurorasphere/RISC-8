@@ -217,7 +217,8 @@ fn execI(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
 }
 
 fn sign_extend11(x: u11) i16 {
-    return @as(i16, (@as(i16, x) << 5)) >> 5;
+    const sx: i16 = @intCast(x);
+    return (sx << 5) >> 5;
 }
 
 fn execJ(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
@@ -283,6 +284,7 @@ fn execJ(soc: *sys_on_chip, instr: u16, is_debug: bool) void {
             jumped = true;
         },
     }
+    if (!jumped) soc.pc += 2;
     if (is_debug) {
         const tag_names = [_][]const u8{ "jmp", "jeq", "jneq", "jgt", "jlt", "jegt", "jelt1", "jal" };
         if (fn3 < tag_names.len) {
@@ -399,9 +401,7 @@ pub fn SoC_run(soc: *sys_on_chip, is_debug: bool, is_slow: bool) void {
         if (is_debug) {
             std.debug.print("[FETCH] PC=0x{X:04} → instr=0x{X:04}\n", .{ soc.pc, instr });
         }
-        soc.pc += 2;
 
-        // 명령어 Decode + Execute
         const opc: u2 = @intCast(instr & 0b11);
         if (is_slow) {
             std.time.sleep(1_000_000_000);
@@ -418,12 +418,21 @@ pub fn SoC_run(soc: *sys_on_chip, is_debug: bool, is_slow: bool) void {
         }
 
         switch (opc) {
-            0b00 => execR(soc, instr, is_debug),
-            0b01 => execI(soc, instr, is_debug),
+            0b00 => {
+                execR(soc, instr, is_debug);
+                soc.pc += 2;
+            },
+            0b01 => {
+                execI(soc, instr, is_debug);
+                soc.pc += 2;
+            },
             0b10 => execJ(soc, instr, is_debug),
-            0b11 => execP(soc, instr),
+            0b11 => {
+                execP(soc, instr);
+                soc.pc += 2;
+            },
         }
     }
 
-    std.debug.print("SoC Halted. Final PC Value: 0x{X:04}\n", .{soc.pc});
+    std.debug.print("\n\nSoC Halted. Final PC Value: 0x{X:04}\n", .{soc.pc});
 }
